@@ -4,6 +4,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 require('dotenv').config();
 const cors = require("cors");
+const jwt = require('jsonwebtoken');
 const res = require('express/lib/response');
 
 
@@ -11,7 +12,26 @@ const res = require('express/lib/response');
 //use MiddleWare
 app.use(cors());
 app.use(express.json());
-app.get
+
+
+function verifyJWT(req, res, next) {
+    const authHeader = req.headers.authorization
+    if (!authHeader) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
+    const token = authHeader.split(' ')[1]
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+            res.status(403).send({ message: "Forbidden Access" })
+        }
+        else {
+            req.decoded = decoded;
+            next();
+        };
+    });
+
+};
+
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.sqkfu.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
@@ -21,6 +41,20 @@ async function run() {
 
         await client.connect()
         const serviceCollection = client.db("Genius-Car-Service").collection("Service");
+        const orderCollection = client.db("Genius-Car-Service").collection("order");
+
+        //JWT AUTH
+        app.post("/gettoken", async (req, res) => {
+
+            const user = req.body;
+            const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+                expiresIn: "1d"
+            })
+            res.send({ accessToken: accessToken })  //karon amaderke obosshoi jodi kon res amra send kori seta hote hobe object.
+        })
+
+
+        //SERVICES AND ORDERS        
         app.get('/service', async (req, res) => {
             const query = {}
             const cursor = serviceCollection.find(query)
@@ -44,7 +78,35 @@ async function run() {
             const query = { _id: ObjectId(id) }
             const result = await serviceCollection.deleteOne(query)
             res.send(result)
+        });
+        //order collection api
+        app.get('/order', verifyJWT, async (req, res) => {
+            const decodedEmail = req?.decoded?.email
+            const email = req.query.email;
+            if (email === decodedEmail) {
+                const query = { email: email };
+                const cursor = orderCollection.find(query)
+                const orders = await cursor.toArray();
+                res.send(orders)
+            }
+            else {
+                res.status(403).send({ message: "Forbidden Access" })
+            }
         })
+
+        /*  app.get('/order/:email', async (req, res) => {   //
+             const email = req.params.email
+             const query = { email }
+             const cursor = orderCollection.find(query);
+             const order = await cursor.toArray();
+             res.send(order)
+         }) */
+
+        app.post('/order', async (req, res) => {
+            const newOrder = req.body;
+            const result = await orderCollection.insertOne(newOrder)   //eigulate await na dile kintu result null kore dibe.
+            res.send(result)
+        });
 
     }
     finally {
